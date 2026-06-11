@@ -78,6 +78,9 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(UserPetException.class)
     protected ResponseEntity<ErrorResponse> handleUserPetException(UserPetException e) {
         log.error("UserPetException occurred: {}", e.getErrorCode());
+        if (e.getCustomMessage() != null) {
+            return toResponseEntity(e.getErrorCode(), e.getCustomMessage());
+        }
         return toResponseEntity(e.getErrorCode());
     }
 

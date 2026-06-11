@@ -201,12 +201,19 @@ public class PetController {
             @ApiResponse(responseCode = "401", description = "로그인이 필요한 기능입니다.",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class),
                             examples = @ExampleObject(name = "401 Unauthorized", value = "{\"status\": 401, \"message\": \"로그인이 필요한 기능입니다.\"}"))),
+            @ApiResponse(responseCode = "403", description = "가족 등록 신청이 차단되었습니다.",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                            examples = @ExampleObject(name = "403 Forbidden", value = "{\"status\": 403, \"message\": \"가족 등록 신청이 차단되었습니다.\"}"))),
             @ApiResponse(responseCode = "404", description = "만료되었거나 존재하지 않는 초대 코드입니다.",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class),
                             examples = @ExampleObject(name = "404 Not Found", value = "{\"status\": 404, \"message\": \"만료되었거나 존재하지 않는 초대 코드입니다.\"}"))),
-            @ApiResponse(responseCode = "409", description = "이미 가족으로 등록되어있습니다.",
+            @ApiResponse(responseCode = "409", description = "가족 신청 상태 충돌입니다.",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class),
-                            examples = @ExampleObject(name = "409 Conflict", value = "{\"status\": 409, \"message\": \"이미 가족으로 등록되어있습니다.\"}"))),
+                            examples = {
+                                    @ExampleObject(name = "Already Family Member", value = "{\"status\": 409, \"message\": \"이미 가족으로 등록되어있습니다.\"}"),
+                                    @ExampleObject(name = "Pending Family Request", value = "{\"status\": 409, \"message\": \"이미 가족 등록 신청이 대기 중입니다.\"}"),
+                                    @ExampleObject(name = "Rejected Family Request Cooldown", value = "{\"status\": 409, \"message\": \"가족 등록 신청이 거절되었습니다. 15분 후 다시 신청해주세요.\"}")
+                            })),
             @ApiResponse(responseCode = "500", description = "서버 내부 오류가 발생했습니다.",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class),
                             examples = @ExampleObject(name = "500 Internal Server Error", value = "{\"status\": 500, \"message\": \"서버 내부 오류가 발생했습니다.\"}")))
@@ -223,19 +230,24 @@ public class PetController {
     }
 
     /**
-     * 대기 중인 가족 등록 요청을 승인하거나 거절합니다.
+     * 대기 중인 가족 등록 요청을 승인, 거절 또는 차단합니다.
      * <p>
      * 관리자(기존 가족 구성원)는 대기(PENDING) 상태인 요청을 승인하여 정식 구성원으로 등록하거나,
-     * 거절하여 요청 목록에서 삭제할 수 있습니다.
+     * 거절 또는 차단할 수 있습니다.
      *
-     * @param request     승인/거절 처리에 필요한 요청 정보
+     * @param request     승인/거절/차단 처리에 필요한 요청 정보
      * @param userDetails 인증된 사용자 정보
      * @return 처리 결과 메시지 JSON
      */
-    @Operation(summary = "가족 요청 승인/거절", description = "대기 중인 가족 등록 요청을 승인하거나 거절합니다.")
+    @Operation(summary = "가족 요청 승인/거절/차단", description = "대기 중인 가족 등록 요청을 승인, 거절 또는 차단합니다.")
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "신청 성공",
-                    content = @Content(schema = @Schema(implementation = PetFamilyApprovalResponse.class))),
+            @ApiResponse(responseCode = "200", description = "처리 성공",
+                    content = @Content(schema = @Schema(implementation = PetFamilyApprovalResponse.class),
+                            examples = {
+                                    @ExampleObject(name = "Approve", value = "{\"petId\": 1, \"message\": \"가족 신청을 승인했습니다.\"}"),
+                                    @ExampleObject(name = "Reject", value = "{\"petId\": 1, \"message\": \"가족 신청을 거절했습니다.\"}"),
+                                    @ExampleObject(name = "Block", value = "{\"petId\": 1, \"message\": \"가족 신청을 차단했습니다.\"}")
+                            })),
             @ApiResponse(responseCode = "400", description = "잘못된 요청",
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ErrorResponse.class),
@@ -244,17 +256,14 @@ public class PetController {
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ErrorResponse.class),
                             examples = @ExampleObject(name = "401 Unauthorized", value = "{\"status\": 401, \"message\": \"로그인이 필요한 기능입니다.\"}"))),
-            @ApiResponse(responseCode = "403", description = "승인 권한 없음",
+            @ApiResponse(responseCode = "403", description = "처리 권한 없음",
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ErrorResponse.class),
-                            examples = @ExampleObject(name = "403 Forbidden", value = "{\"status\": 403, \"message\": \"승인 권한이 없습니다.\"}"))),
+                            examples = @ExampleObject(name = "403 Forbidden", value = "{\"status\": 403, \"message\": \"자신이 등록하거나 속해있는 반려동물만 초대할 수 있습니다.\"}"))),
             @ApiResponse(responseCode = "404", description = "대상 유저 또는 요청을 찾을 수 없음",
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ErrorResponse.class),
                             examples = @ExampleObject(name = "404 Not Found", value = "{\"status\": 404, \"message\": \"대상 유저 또는 요청을 찾을 수 없습니다.\"}"))),
-            @ApiResponse(responseCode = "409", description = "이미 가족으로 등록되어있습니다.",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class),
-                            examples = @ExampleObject(name = "409 Conflict", value = "{\"status\": 409, \"message\": \"이미 가족으로 등록되어있습니다.\"}"))),
             @ApiResponse(responseCode = "500", description = "서버 내부 오류",
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ErrorResponse.class),
@@ -272,6 +281,49 @@ public class PetController {
                 request.getPetId(),
                 request.getTargetUserId(),
                 request.getAction()
+        ));
+    }
+
+    /**
+     * 차단된 가족 신청자의 차단 상태를 해제합니다.
+     * <p>
+     * 차단 해제 시 해당 UserPet 관계를 삭제하여, 대상 유저가 이후 초대 코드를 통해 다시 신청할 수 있도록 합니다.
+     *
+     * @param request     차단 해제할 반려동물 ID와 대상 유저 ID
+     * @param userDetails 인증된 사용자 정보
+     * @return 처리 결과 메시지 JSON
+     */
+    @Operation(summary = "가족 신청 차단 해제", description = "차단된 가족 신청자의 차단 상태를 해제하여 다시 신청할 수 있도록 합니다.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "차단 해제 성공",
+                    content = @Content(schema = @Schema(implementation = PetFamilyApprovalResponse.class))),
+            @ApiResponse(responseCode = "400", description = "잘못된 요청입니다.",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                            examples = @ExampleObject(name = "400 Bad Request", value = "{\"status\": 400, \"message\": \"잘못된 요청입니다.\"}"))),
+            @ApiResponse(responseCode = "401", description = "로그인이 필요한 기능입니다.",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                            examples = @ExampleObject(name = "401 Unauthorized", value = "{\"status\": 401, \"message\": \"로그인이 필요한 기능입니다.\"}"))),
+            @ApiResponse(responseCode = "403", description = "차단 해제 권한이 없습니다.",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                            examples = @ExampleObject(name = "403 Forbidden", value = "{\"status\": 403, \"message\": \"자신이 등록하거나 속해있는 반려동물만 초대할 수 있습니다.\"}"))),
+            @ApiResponse(responseCode = "404", description = "차단된 신청 내역을 찾을 수 없습니다.",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                            examples = @ExampleObject(name = "404 Not Found", value = "{\"status\": 404, \"message\": \"초대하려는 사용자를 찾을 수 없습니다.\"}"))),
+            @ApiResponse(responseCode = "500", description = "서버 내부 오류가 발생했습니다.",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class),
+                            examples = @ExampleObject(name = "500 Internal Server Error", value = "{\"status\": 500, \"message\": \"서버 내부 오류가 발생했습니다.\"}")))
+    })
+    @DeleteMapping("/family/block")
+    public ResponseEntity<PetFamilyApprovalResponse> unblockFamily(
+            @Valid @RequestBody PetFamilyBlockReleaseRequest request,
+            @AuthenticationPrincipal UserDetails userDetails) {
+
+        UUID requesterId = UUID.fromString(userDetails.getUsername());
+
+        return ResponseEntity.ok(petService.unblockFamily(
+                requesterId,
+                request.getPetId(),
+                request.getTargetUserId()
         ));
     }
 
@@ -325,13 +377,14 @@ public class PetController {
      * 내 모든 반려동물에게 들어온 가족 신청(대기자) 목록을 페이징하여 조회합니다.
      * <p>
      * 내가 소유(APPROVED)하고 있는 모든 반려동물에 대해,
-     * 가족 신청을 보낸 유저(대기자)들을 한 번에 모아서 조회합니다.
+     * 가족 신청을 보낸 유저 중 대기(PENDING) 또는 거절(REJECTED) 상태인 유저들을 한 번에 모아서 조회합니다.
+     * 거절된 신청은 거절 일시(rejectedAt)를 함께 반환합니다.
      *
      * @param pageable    페이징 정보 (page, size, sort)
      * @param userDetails 인증된 사용자 정보
      * @return 페이징된 대기자 목록 응답 객체 (HTTP 200)
      */
-    @Operation(summary = "가족 신청 대기자 전체 조회", description = "내가 관리하는 모든 반려동물에게 들어온 가족 신청 목록을 조회합니다.")
+    @Operation(summary = "가족 신청 대기/거절 유저 전체 조회", description = "내가 관리하는 모든 반려동물에게 들어온 PENDING, REJECTED 가족 신청 목록을 조회합니다.")
     @Parameters({
             @Parameter(name = "page", description = "조회할 페이지 번호 (0부터 시작)", in = ParameterIn.QUERY, example = "0"),
             @Parameter(name = "size", description = "한 페이지에 보여줄 데이터 수", in = ParameterIn.QUERY, example = "10"),
@@ -363,24 +416,71 @@ public class PetController {
     })
     @GetMapping("/family/pending-users")
     public ResponseEntity<PendingUserListResponse> getAllPendingUsers(
+            @Parameter(name = "status", description = "신청 상태 필터 (PENDING 또는 REJECTED). 미전달 시 전체 조회", in = ParameterIn.QUERY, example = "PENDING")
+            @RequestParam(required = false) String status,
             @Parameter(hidden = true) @PageableDefault(size = 10) Pageable pageable,
             @AuthenticationPrincipal UserDetails userDetails) {
 
         UUID managerId = UUID.fromString(userDetails.getUsername());
-        return ResponseEntity.ok(petService.getAllPendingUsers(managerId, pageable));
+        return ResponseEntity.ok(petService.getAllPendingUsers(managerId, pageable, status));
     }
 
     /**
-     * 내가 가족 신청을 보낸 후 대기 중인 반려동물 목록을 페이징하여 조회합니다.
+     * 내 모든 반려동물에서 차단된 가족 신청자 목록을 페이징하여 조회합니다.
      * <p>
-     * 아직 승인되지 않은(PENDING) 신청 내역만 조회되며,
-     * 신청 상태와 신청 일시 등의 요약 정보를 반환합니다.
+     * 내가 소유(APPROVED)하고 있는 모든 반려동물에 대해,
+     * 차단(BLOCKED) 상태인 유저들을 한 번에 모아서 조회합니다.
+     *
+     * @param pageable    페이징 정보 (page, size, sort)
+     * @param userDetails 인증된 사용자 정보
+     * @return 페이징된 차단 유저 목록 응답 객체 (HTTP 200)
+     */
+    @Operation(summary = "가족 신청 차단 유저 전체 조회", description = "내가 관리하는 모든 반려동물에서 차단된 가족 신청자 목록을 조회합니다.")
+    @Parameters({
+            @Parameter(name = "page", description = "조회할 페이지 번호 (0부터 시작)", in = ParameterIn.QUERY, example = "0"),
+            @Parameter(name = "size", description = "한 페이지에 보여줄 데이터 수", in = ParameterIn.QUERY, example = "10"),
+            @Parameter(name = "sort", description = "정렬 기준 (가능 값: registrationCreatedAt, registrationUpdatedAt / 예: registrationUpdatedAt,desc)", in = ParameterIn.QUERY, example = "registrationUpdatedAt,desc")
+    })
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "조회를 성공했습니다.",
+                    content = @Content(schema = @Schema(implementation = BlockedUserListResponse.class))),
+            @ApiResponse(responseCode = "400", description = "잘못된 요청입니다.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class),
+                            examples = @ExampleObject(name = "400 Bad Request", value = "{\"status\": 400, \"message\": \"잘못된 요청입니다.\"}"))),
+            @ApiResponse(responseCode = "401", description = "로그인이 필요한 기능입니다.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class),
+                            examples = @ExampleObject(name = "401 Unauthorized", value = "{\"status\": 401, \"message\": \"로그인이 필요한 기능입니다.\"}"))),
+            @ApiResponse(responseCode = "403", description = "접근 권한이 없습니다.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class),
+                            examples = @ExampleObject(name = "403 Forbidden", value = "{\"status\": 403, \"message\": \"접근 권한이 없습니다.\"}"))),
+            @ApiResponse(responseCode = "500", description = "서버 내부 오류가 발생했습니다.",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ErrorResponse.class),
+                            examples = @ExampleObject(name = "500 Internal Server Error", value = "{\"status\": 500, \"message\": \"서버 내부 오류가 발생했습니다.\"}")))
+    })
+    @GetMapping("/family/blocked-users")
+    public ResponseEntity<BlockedUserListResponse> getAllBlockedUsers(
+            @Parameter(hidden = true) @PageableDefault(size = 10) Pageable pageable,
+            @AuthenticationPrincipal UserDetails userDetails) {
+
+        UUID managerId = UUID.fromString(userDetails.getUsername());
+        return ResponseEntity.ok(petService.getAllBlockedUsers(managerId, pageable));
+    }
+
+    /**
+     * 내가 가족 신청을 보낸 후 대기 또는 거절 상태인 반려동물 목록을 페이징하여 조회합니다.
+     * <p>
+     * 아직 승인되지 않은(PENDING) 신청과 거절된(REJECTED) 신청 내역을 조회하며,
+     * 거절된 신청은 거절 일시(rejectedAt)를 함께 반환합니다.
      *
      * @param pageable    페이징 정보 (page, size, sort)
      * @param userDetails 인증된 사용자 정보
      * @return 페이징된 나의 신청 내역 목록 응답 객체 (HTTP 200)
      */
-    @Operation(summary = "내 신청 내역 조회", description = "내가 가족 신청을 했으나 아직 승인되지 않은(PENDING) 펫 목록을 조회합니다.")
+    @Operation(summary = "내 신청 내역 조회", description = "내가 가족 신청을 했으나 아직 승인되지 않았거나 거절된(PENDING, REJECTED) 펫 목록을 조회합니다.")
     @Parameters({
             @Parameter(name = "page", description = "조회할 페이지 번호 (0부터 시작)", in = ParameterIn.QUERY, example = "0"),
             @Parameter(name = "size", description = "한 페이지에 보여줄 데이터 수", in = ParameterIn.QUERY, example = "10"),
@@ -408,11 +508,13 @@ public class PetController {
     })
     @GetMapping("/family/applications")
     public ResponseEntity<PetApplicationListResponse> getMyPendingApplications(
+            @Parameter(name = "status", description = "신청 상태 필터 (PENDING 또는 REJECTED). 미전달 시 전체 조회", in = ParameterIn.QUERY, example = "PENDING")
+            @RequestParam(required = false) String status,
             @Parameter(hidden = true) @PageableDefault(size = 10) Pageable pageable,
             @AuthenticationPrincipal UserDetails userDetails) {
 
         UUID userId = UUID.fromString(userDetails.getUsername());
-        return ResponseEntity.ok(petService.getMyPendingApplications(userId, pageable));
+        return ResponseEntity.ok(petService.getMyPendingApplications(userId, pageable, status));
     }
 
     /**
@@ -518,7 +620,6 @@ public class PetController {
      * 디바이스 ID 중복 여부를 확인합니다.
      *
      * @param request     확인할 디바이스 ID
-     * @param userDetails 인증된 사용자 정보
      * @return 디바이스 ID 사용 가능 여부 응답
      */
     @Operation(summary = "디바이스 ID 중복 확인", description = "펫 등록 전에 디바이스 ID가 이미 다른 반려동물에 등록되어 있는지 확인합니다.")

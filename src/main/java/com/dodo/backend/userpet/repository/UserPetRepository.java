@@ -51,15 +51,68 @@ public interface UserPetRepository extends JpaRepository<UserPet, UserPetId> {
      * @param pageable  페이징 정보
      * @return 관리하는 펫들에 대한 모든 승인 대기 내역
      */
-    @Query("SELECT up FROM UserPet up " +
-            "JOIN FETCH up.user " +
-            "JOIN FETCH up.pet " +
-            "WHERE up.registrationStatus = 'PENDING' " +
-            "AND up.pet.petId IN (" +
-            "   SELECT my.pet.petId FROM UserPet my " +
-            "   WHERE my.user.usersId = :managerId AND my.registrationStatus = 'APPROVED'" +
-            ")")
-    Page<UserPet> findAllPendingRequestsByManager(@Param("managerId") UUID managerId, Pageable pageable);
+    @Query(
+            value = "SELECT up FROM UserPet up " +
+                    "JOIN FETCH up.user " +
+                    "JOIN FETCH up.pet " +
+                    "WHERE up.registrationStatus IN :statuses " +
+                    "AND up.pet.petId IN (" +
+                    "   SELECT my.pet.petId FROM UserPet my " +
+                    "   WHERE my.user.usersId = :managerId AND my.registrationStatus = 'APPROVED'" +
+                    ")",
+            countQuery = "SELECT COUNT(up) FROM UserPet up " +
+                    "WHERE up.registrationStatus IN :statuses " +
+                    "AND up.pet.petId IN (" +
+                    "   SELECT my.pet.petId FROM UserPet my " +
+                    "   WHERE my.user.usersId = :managerId AND my.registrationStatus = 'APPROVED'" +
+                    ")"
+    )
+    Page<UserPet> findAllPendingRequestsByManager(
+            @Param("managerId") UUID managerId,
+            @Param("statuses") List<RegistrationStatus> statuses,
+            Pageable pageable
+    );
+
+    /**
+     * 관리자(요청자)가 APPROVED 상태로 소유하고 있는 모든 반려동물에 대해,
+     * 차단된 가족 신청(BLOCKED) 목록을 전체 조회합니다.
+     *
+     * @param managerId 관리자(현재 로그인한 유저)의 ID
+     * @param pageable  페이징 정보
+     * @return 관리하는 펫들에 대한 모든 차단 내역
+     */
+    @Query(
+            value = "SELECT up FROM UserPet up " +
+                    "JOIN FETCH up.user " +
+                    "JOIN FETCH up.pet " +
+                    "WHERE up.registrationStatus = 'BLOCKED' " +
+                    "AND up.pet.petId IN (" +
+                    "   SELECT my.pet.petId FROM UserPet my " +
+                    "   WHERE my.user.usersId = :managerId AND my.registrationStatus = 'APPROVED'" +
+                    ")",
+            countQuery = "SELECT COUNT(up) FROM UserPet up " +
+                    "WHERE up.registrationStatus = 'BLOCKED' " +
+                    "AND up.pet.petId IN (" +
+                    "   SELECT my.pet.petId FROM UserPet my " +
+                    "   WHERE my.user.usersId = :managerId AND my.registrationStatus = 'APPROVED'" +
+                    ")"
+    )
+    Page<UserPet> findAllBlockedRequestsByManager(@Param("managerId") UUID managerId, Pageable pageable);
+
+    /**
+     * 특정 사용자의 반려동물 신청 내역 중 지정된 상태 목록에 포함되는 데이터만 페이징 조회합니다.
+     *
+     * @param userId   사용자 ID
+     * @param statuses 조회할 등록 상태 목록
+     * @param pageable 페이징 정보
+     * @return 상태 조건에 맞는 페이징된 UserPet 목록
+     */
+    @EntityGraph(attributePaths = "pet")
+    Page<UserPet> findAllByUser_UsersIdAndRegistrationStatusIn(
+            UUID userId,
+            List<RegistrationStatus> statuses,
+            Pageable pageable
+    );
 
     /**
      * 특정 유저가 특정 반려동물의 소유자(APPROVED 상태)인지 확인합니다.

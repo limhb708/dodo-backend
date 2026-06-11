@@ -21,9 +21,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static com.dodo.backend.user.exception.UserErrorCode.USER_NOT_FOUND;
@@ -43,6 +45,7 @@ public class UserPetServiceImpl implements UserPetService {
     private final UserPetMapper userPetMapper;
 
     private static final long EXPIRATION_MINUTES = 15;
+    private static final long REAPPLY_COOLDOWN_MINUTES = 15;
     private static final String REDIS_CODE_KEY_PREFIX = "invitation:code:";
     private static final String REDIS_PET_KEY_PREFIX = "invitation:pet:";
 
@@ -152,8 +155,24 @@ public class UserPetServiceImpl implements UserPetService {
 
         Long petId = Long.valueOf(petIdStr);
 
-        if (userPetRepository.existsById(new UserPetId(userId, petId))) {
-            throw new UserPetException(ALREADY_FAMILY_MEMBER);
+        Optional<UserPet> existingUserPet = userPetRepository.findById(new UserPetId(userId, petId));
+        if (existingUserPet.isPresent()) {
+            UserPet userPet = existingUserPet.get();
+            if (userPet.getRegistrationStatus() == RegistrationStatus.PENDING) {
+                throw new UserPetException(FAMILY_REQUEST_PENDING);
+            }
+            if (userPet.getRegistrationStatus() == RegistrationStatus.APPROVED) {
+                throw new UserPetException(ALREADY_FAMILY_MEMBER);
+            }
+            if (userPet.getRegistrationStatus() == RegistrationStatus.BLOCKED) {
+                throw new UserPetException(FAMILY_REQUEST_BLOCKED);
+            }
+            if (userPet.getRegistrationStatus() == RegistrationStatus.REJECTED) {
+                validateRejectedReapplyCooldown(userPet);
+                userPetMapper.updateRegistrationStatus(userId, petId, RegistrationStatus.PENDING.name());
+                log.info("가족 초대 재신청 (대기) - User: {}, PetId: {}", userId, petId);
+                return petId;
+            }
         }
 
         Pet petRef = Pet.builder().petId(petId).build();
@@ -162,6 +181,27 @@ public class UserPetServiceImpl implements UserPetService {
         log.info("가족 초대 요청 (대기) - User: {}, PetId: {}", userId, petId);
 
         return petId;
+    }
+
+    private void validateRejectedReapplyCooldown(UserPet userPet) {
+        LocalDateTime rejectedAt = userPet.getRegistrationUpdatedAt();
+        if (rejectedAt == null) {
+            rejectedAt = userPet.getRegistrationCreatedAt();
+        }
+        if (rejectedAt == null) {
+            return;
+        }
+
+        LocalDateTime reapplyAvailableAt = rejectedAt.plusMinutes(REAPPLY_COOLDOWN_MINUTES);
+        LocalDateTime now = LocalDateTime.now();
+        if (now.isBefore(reapplyAvailableAt)) {
+            long remainingSeconds = Duration.between(now, reapplyAvailableAt).getSeconds();
+            long remainingMinutes = Math.max(1, (remainingSeconds + 59) / 60);
+            throw new UserPetException(
+                    FAMILY_REQUEST_REJECTED,
+                    String.format("가족 등록 신청이 거절되었습니다. %d분 후 다시 신청해주세요.", remainingMinutes)
+            );
+        }
     }
 
     /**
@@ -193,15 +233,16 @@ public class UserPetServiceImpl implements UserPetService {
     }
 
     /**
-     * 대기 중인(PENDING) 가족 등록 요청을 승인하거나 거절합니다.
+     * 대기 중인(PENDING) 가족 등록 요청을 승인, 거절 또는 차단합니다.
      * <p>
      * <ol>
      * <li><b>권한 및 대상 검증:</b> {@code filter}를 사용하여 요청자({@code requesterId})가 승인된(APPROVED) 가족인지,
      * 대상({@code targetUserId})이 대기(PENDING) 상태인지 검증합니다. (조건 불만족 시 예외 발생)</li>
      * <li><b>요청 처리:</b> 입력된 {@code action} 문자열에 따라 분기 처리합니다.
      * <ul>
-     * <li>{@code "REJECTED"}: 해당 요청 내역을 삭제하고 거절 메시지를 반환합니다. (Early Return)</li>
      * <li>{@code "APPROVED"}: 상태를 승인으로 변경하여 저장하고 승인 메시지를 반환합니다.</li>
+     * <li>{@code "REJECTED"}: 상태를 거절로 변경하여 저장하고 거절 메시지를 반환합니다.</li>
+     * <li>{@code "BLOCKED"}: 상태를 차단으로 변경하여 저장하고 차단 메시지를 반환합니다.</li>
      * <li>그 외: 유효하지 않은 요청으로 간주하여 예외를 발생시킵니다.</li>
      * </ul>
      * </li>
@@ -209,9 +250,9 @@ public class UserPetServiceImpl implements UserPetService {
      *
      * @param requesterId 요청을 수행하는 관리자(기존 가족 구성원)의 UUID
      * @param petId       반려동물 식별자(ID)
-     * @param targetUserId 승인 또는 거절할 대상 유저의 UUID
-     * @param action      처리할 상태 문자열 ("APPROVED" 또는 "REJECTED")
-     * @return 처리 결과 메시지 ("가족 신청을 승인했습니다." 또는 "가족 신청을 거절했습니다.")
+     * @param targetUserId 승인, 거절 또는 차단할 대상 유저의 UUID
+     * @param action      처리할 상태 문자열 ("APPROVED", "REJECTED" 또는 "BLOCKED")
+     * @return 처리 결과 메시지
      * @throws UserPetException 권한이 없거나, 대상이 없거나, 유효하지 않은 요청 상태일 경우 발생
      */
     @Transactional
@@ -231,6 +272,8 @@ public class UserPetServiceImpl implements UserPetService {
             message = "가족 신청을 승인했습니다.";
         } else if ("REJECTED".equals(action)) {
             message = "가족 신청을 거절했습니다.";
+        } else if ("BLOCKED".equals(action)) {
+            message = "가족 신청을 차단했습니다.";
         } else {
             throw new UserPetException(INVALID_REQUEST);
         }
@@ -240,6 +283,25 @@ public class UserPetServiceImpl implements UserPetService {
         log.info("가족 요청 처리 완료 - PetId: {}, TargetUser: {}, Status: {}", petId, targetUserId, action);
 
         return message;
+    }
+
+    @Transactional
+    @Override
+    public String unblockFamilyMember(UUID requesterId, Long petId, UUID targetUserId) {
+
+        userPetRepository.findById(new UserPetId(requesterId, petId))
+                .filter(up -> up.getRegistrationStatus() == RegistrationStatus.APPROVED)
+                .orElseThrow(() -> new UserPetException(INVITE_PERMISSION_DENIED));
+
+        UserPet blockedUserPet = userPetRepository.findById(new UserPetId(targetUserId, petId))
+                .filter(up -> up.getRegistrationStatus() == RegistrationStatus.BLOCKED)
+                .orElseThrow(() -> new UserPetException(INVITEE_NOT_FOUND));
+
+        userPetRepository.delete(blockedUserPet);
+
+        log.info("가족 신청 차단 해제 완료 - PetId: {}, TargetUser: {}", petId, targetUserId);
+
+        return "가족 신청 차단을 해제했습니다.";
     }
 
     /**
@@ -256,9 +318,13 @@ public class UserPetServiceImpl implements UserPetService {
      */
     @Transactional(readOnly = true)
     @Override
-    public Map<String, Object> getAllPendingUsers(UUID managerId, Pageable pageable) {
+    public Map<String, Object> getAllPendingUsers(UUID managerId, Pageable pageable, String status) {
 
-        Page<UserPet> pendingUserPage = userPetRepository.findAllPendingRequestsByManager(managerId, pageable);
+        Page<UserPet> pendingUserPage = userPetRepository.findAllPendingRequestsByManager(
+                managerId,
+                resolveApplicationStatuses(status),
+                pageable
+        );
 
         Map<String, Object> result = new HashMap<>();
         result.put("pendingUserPage", pendingUserPage);
@@ -267,10 +333,32 @@ public class UserPetServiceImpl implements UserPetService {
     }
 
     /**
-     * 사용자가 신청했으나 아직 승인되지 않은(PENDING) 반려동물 목록을 조회합니다.
+     * [관리자용] 관리자가 소유한 모든 반려동물에 대해 차단된(BLOCKED) 유저 목록을 조회합니다.
+     * <p>
+     * 별도의 petId 검증 없이, 리포지토리 쿼리를 통해 요청자가 승인된 가족으로 속한
+     * 반려동물들의 차단 내역만 필터링하여 조회합니다.
+     *
+     * @param managerId 요청을 수행하는 관리자(기존 가족)의 UUID
+     * @param pageable  페이징 요청 정보
+     * @return "blockedUserPage" 키에 {@code Page<UserPet>} 엔티티가 담긴 Map 객체
+     */
+    @Transactional(readOnly = true)
+    @Override
+    public Map<String, Object> getAllBlockedUsers(UUID managerId, Pageable pageable) {
+
+        Page<UserPet> blockedUserPage = userPetRepository.findAllBlockedRequestsByManager(managerId, pageable);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("blockedUserPage", blockedUserPage);
+
+        return result;
+    }
+
+    /**
+     * 사용자의 가족 신청 내역(PENDING, REJECTED)을 조회합니다.
      * <p>
      * <ol>
-     * <li>리포지토리를 통해 해당 유저의 PENDING 상태인 {@link UserPet} 목록을 페이징 조회합니다.</li>
+     * <li>리포지토리를 통해 해당 유저의 PENDING, REJECTED 상태인 {@link UserPet} 목록을 페이징 조회합니다.</li>
      * <li>조회된 Entity Page를 Map에 담아 반환합니다.</li>
      * </ol>
      *
@@ -280,11 +368,11 @@ public class UserPetServiceImpl implements UserPetService {
      */
     @Transactional(readOnly = true)
     @Override
-    public Map<String, Object> getMyPendingPets(UUID userId, Pageable pageable) {
+    public Map<String, Object> getMyPendingPets(UUID userId, Pageable pageable, String status) {
 
-        Page<UserPet> pendingPetPage = userPetRepository.findAllByUser_UsersIdAndRegistrationStatus(
+        Page<UserPet> pendingPetPage = userPetRepository.findAllByUser_UsersIdAndRegistrationStatusIn(
                 userId,
-                RegistrationStatus.PENDING,
+                resolveApplicationStatuses(status),
                 pageable
         );
 
@@ -292,6 +380,23 @@ public class UserPetServiceImpl implements UserPetService {
         result.put("pendingPetPage", pendingPetPage);
 
         return result;
+    }
+
+    private List<RegistrationStatus> resolveApplicationStatuses(String status) {
+        if (status == null || status.isBlank()) {
+            return List.of(RegistrationStatus.PENDING, RegistrationStatus.REJECTED);
+        }
+
+        try {
+            RegistrationStatus registrationStatus = RegistrationStatus.valueOf(status.trim().toUpperCase());
+            if (registrationStatus == RegistrationStatus.PENDING || registrationStatus == RegistrationStatus.REJECTED) {
+                return List.of(registrationStatus);
+            }
+        } catch (IllegalArgumentException ignored) {
+            // Fall through to the common bad request response.
+        }
+
+        throw new UserPetException(INVALID_REQUEST);
     }
 
     /**

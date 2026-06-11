@@ -10,7 +10,8 @@
          4. WHERE 조건 : 특정 유저의 특정 반려동물만 업데이트 -->
     <update id="updateRegistrationStatus">
         UPDATE users_animals
-        SET registration_status = #{status}
+        SET registration_status = #{status},
+            registration_updated_at = CURRENT_TIMESTAMP
         WHERE user_id = #{userId}
           AND pet_id = #{petId}
     </update>

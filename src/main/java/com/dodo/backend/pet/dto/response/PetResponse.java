@@ -349,12 +349,18 @@ public class PetResponse {
             @Schema(description = "신청 대상 반려동물 프로필 이미지 URL", example = "https://example.com/pet_profile.jpg")
             private String targetPetImageUrl;
 
+            @Schema(description = "신청 상태", example = "PENDING")
+            private String status;
+
             @Schema(description = "신청 일시", example = "2024-02-01T12:00:00")
             private LocalDateTime requestedAt;
 
+            @Schema(description = "거절 일시 (REJECTED 상태일 때만 반환)", example = "2024-02-01T12:15:00", nullable = true)
+            private LocalDateTime rejectedAt;
+
             public static PendingUserResponse toDto(UUID userId, String nickname, String profileUrl,
                                                     Long targetPetId, String targetPetName, String targetPetImageUrl,
-                                                    LocalDateTime requestedAt) {
+                                                    String status, LocalDateTime requestedAt, LocalDateTime rejectedAt) {
                 return PendingUserResponse.builder()
                         .userId(userId)
                         .nickname(nickname)
@@ -362,7 +368,112 @@ public class PetResponse {
                         .targetPetId(targetPetId)
                         .targetPetName(targetPetName)
                         .targetPetImageUrl(targetPetImageUrl)
+                        .status(status)
                         .requestedAt(requestedAt)
+                        .rejectedAt(rejectedAt)
+                        .build();
+            }
+        }
+    }
+
+    /**
+     * 차단된 가족 신청자 목록 조회 시 반환되는 페이징 된 응답 DTO입니다.
+     */
+    @Getter
+    @Builder
+    @AllArgsConstructor
+    @Schema(description = "차단된 가족 신청자 목록 응답 (페이징 포함)")
+    public static class BlockedUserListResponse {
+
+        @Schema(description = "응답 메시지", example = "조회를 성공했습니다.")
+        private String message;
+
+        @Schema(description = "차단된 유저 데이터 목록")
+        private List<BlockedUserResponse> users;
+
+        @Schema(description = "총 페이지 수", example = "5")
+        private int totalPages;
+
+        @Schema(description = "총 데이터 수", example = "48")
+        private long totalElements;
+
+        @Schema(description = "현재 페이지 번호 (0부터 시작)", example = "0")
+        private int currentPage;
+
+        @Schema(description = "페이지 크기", example = "10")
+        private int pageSize;
+
+        /**
+         * 페이징된 차단 유저 DTO 목록을 차단 목록 응답 DTO로 변환합니다.
+         *
+         * @param page    차단 유저 DTO가 담긴 페이징 객체
+         * @param message 응답 메시지
+         * @return 페이징 메타데이터와 차단 유저 목록이 포함된 응답 DTO
+         */
+        public static BlockedUserListResponse toDto(Page<BlockedUserResponse> page, String message) {
+            return BlockedUserListResponse.builder()
+                    .message(message)
+                    .users(page.getContent())
+                    .totalPages(page.getTotalPages())
+                    .totalElements(page.getTotalElements())
+                    .currentPage(page.getNumber())
+                    .pageSize(page.getSize())
+                    .build();
+        }
+
+        /**
+         * 개별 차단 유저 정보와 대상 펫 정보를 담는 내부 DTO입니다.
+         */
+        @Getter
+        @Builder
+        @AllArgsConstructor
+        @Schema(description = "차단된 가족 신청자 및 대상 펫 정보")
+        public static class BlockedUserResponse {
+
+            @Schema(description = "차단된 유저 ID", example = "550e8400-e29b-41d4-a716-446655440000")
+            private UUID userId;
+
+            @Schema(description = "차단된 유저 닉네임", example = "강아지조아")
+            private String nickname;
+
+            @Schema(description = "차단된 유저 프로필 이미지 URL", example = "https://example.com/user_profile.jpg")
+            private String profileUrl;
+
+            @Schema(description = "차단 대상 반려동물 ID", example = "101")
+            private Long targetPetId;
+
+            @Schema(description = "차단 대상 반려동물 이름", example = "보리")
+            private String targetPetName;
+
+            @Schema(description = "차단 대상 반려동물 프로필 이미지 URL", example = "https://example.com/pet_profile.jpg")
+            private String targetPetImageUrl;
+
+            @Schema(description = "차단 일시", example = "2024-02-01T12:00:00")
+            private LocalDateTime blockedAt;
+
+            /**
+             * 차단된 유저 정보와 대상 반려동물 정보를 개별 차단 유저 응답 DTO로 변환합니다.
+             *
+             * @param userId            차단된 유저 ID
+             * @param nickname          차단된 유저 닉네임
+             * @param profileUrl        차단된 유저 프로필 이미지 URL
+             * @param targetPetId       차단 대상 반려동물 ID
+             * @param targetPetName     차단 대상 반려동물 이름
+             * @param targetPetImageUrl 차단 대상 반려동물 프로필 이미지 URL
+             * @param blockedAt         차단 일시
+             * @return 개별 차단 유저 응답 DTO
+             */
+            public static BlockedUserResponse toDto(UUID userId, String nickname, String profileUrl,
+                                                    Long targetPetId, String targetPetName, String targetPetImageUrl,
+                                                    LocalDateTime blockedAt) {
+                return BlockedUserResponse.builder()
+                        .userId(userId)
+                        .nickname(nickname)
+                        .profileUrl(profileUrl)
+                        .targetPetId(targetPetId)
+                        .targetPetName(targetPetName)
+                        .targetPetImageUrl(targetPetImageUrl)
+                        .blockedAt(blockedAt)
                         .build();
             }
         }
@@ -430,13 +541,19 @@ public class PetResponse {
             @Schema(description = "신청 일시", example = "2024-02-01T12:00:00")
             private LocalDateTime requestedAt;
 
-            public static PetApplicationResponse toDto(Long petId, String petName, String petImageUrl, String status, LocalDateTime requestedAt) {
+            @Schema(description = "거절 일시 (REJECTED 상태일 때만 반환)", example = "2024-02-01T12:15:00", nullable = true)
+            private LocalDateTime rejectedAt;
+
+            public static PetApplicationResponse toDto(Long petId, String petName, String petImageUrl,
+                                                       String status, LocalDateTime requestedAt,
+                                                       LocalDateTime rejectedAt) {
                 return PetApplicationResponse.builder()
                         .petId(petId)
                         .petName(petName)
                         .petImageUrl(petImageUrl)
                         .status(status)
                         .requestedAt(requestedAt)
+                        .rejectedAt(rejectedAt)
                         .build();
             }
         }

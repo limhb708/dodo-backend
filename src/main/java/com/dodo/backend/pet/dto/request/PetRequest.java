@@ -148,13 +148,13 @@ public class PetRequest {
     }
 
     /**
-     * 가족 등록 요청 승인/거절을 위한 DTO입니다.
+     * 가족 등록 요청 승인/거절/차단을 위한 DTO입니다.
      */
     @Getter
     @NoArgsConstructor
     @AllArgsConstructor
     @Builder
-    @Schema(description = "가족 요청 승인/거절 요청")
+    @Schema(description = "가족 요청 승인/거절/차단 요청")
     public static class PetFamilyApprovalRequest {
 
         @NotNull
@@ -162,12 +162,31 @@ public class PetRequest {
         private Long petId;
 
         @NotNull
-        @Schema(description = "승인/거절 대상 유저 ID", example = "550e8400-e29b-41d4-a716-446655440000")
+        @Schema(description = "승인/거절/차단 대상 유저 ID", example = "550e8400-e29b-41d4-a716-446655440000")
         private UUID targetUserId;
 
         @NotBlank
-        @Schema(description = "처리할 상태 (APPROVED: 승인, REJECTED: 거절)", example = "APPROVED")
+        @Schema(description = "처리할 상태 (APPROVED: 승인, REJECTED: 거절, BLOCKED: 차단)", example = "APPROVED")
         private String action;
+    }
+
+    /**
+     * 가족 신청 차단 해제를 위한 DTO입니다.
+     */
+    @Getter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    @Schema(description = "가족 신청 차단 해제 요청")
+    public static class PetFamilyBlockReleaseRequest {
+
+        @NotNull
+        @Schema(description = "반려동물 ID", example = "1")
+        private Long petId;
+
+        @NotNull
+        @Schema(description = "차단 해제 대상 유저 ID", example = "550e8400-e29b-41d4-a716-446655440000")
+        private UUID targetUserId;
     }
 
     /**

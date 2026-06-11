@@ -24,6 +24,7 @@ import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
@@ -137,7 +138,7 @@ class UserPetServiceTest {
         given(redisTemplate.opsForValue()).willReturn(valueOperations);
         given(valueOperations.get(anyString())).willReturn(petIdStr);
 
-        given(userPetRepository.existsById(any(UserPetId.class))).willReturn(false);
+        given(userPetRepository.findById(any(UserPetId.class))).willReturn(Optional.empty());
         given(userRepository.findById(userId)).willReturn(Optional.of(user));
 
         // when
@@ -149,6 +150,82 @@ class UserPetServiceTest {
         ArgumentCaptor<UserPet> captor = ArgumentCaptor.forClass(UserPet.class);
         verify(userPetRepository).save(captor.capture());
         assertEquals(RegistrationStatus.PENDING, captor.getValue().getRegistrationStatus());
+    }
+
+    @Test
+    @DisplayName("초대 수락 실패: 이전 신청이 거절(REJECTED)된 후 15분이 지나지 않은 경우 남은 시간 메시지 에러를 반환한다.")
+    void registerByInvitation_Fail_RejectedRequestInCooldown() {
+        // given
+        UUID userId = UUID.randomUUID();
+        String invitationCode = "7X9K2P";
+        Long petId = 100L;
+        UserPet rejectedUserPet = UserPet.builder()
+                .registrationStatus(RegistrationStatus.REJECTED)
+                .registrationUpdatedAt(LocalDateTime.now())
+                .build();
+
+        given(redisTemplate.opsForValue()).willReturn(valueOperations);
+        given(valueOperations.get(anyString())).willReturn(String.valueOf(petId));
+        given(userPetRepository.findById(new UserPetId(userId, petId))).willReturn(Optional.of(rejectedUserPet));
+
+        // when
+        UserPetException exception = assertThrows(
+                UserPetException.class,
+                () -> userPetService.registerByInvitation(userId, invitationCode)
+        );
+
+        // then
+        assertEquals(UserPetErrorCode.FAMILY_REQUEST_REJECTED, exception.getErrorCode());
+        assertTrue(exception.getCustomMessage().contains("분 후 다시 신청해주세요."));
+    }
+
+    @Test
+    @DisplayName("초대 수락 성공: 이전 신청이 거절(REJECTED)된 후 15분이 지난 경우 대기(PENDING) 상태로 재신청한다.")
+    void registerByInvitation_Success_RejectedRequestAfterCooldown() {
+        // given
+        UUID userId = UUID.randomUUID();
+        String invitationCode = "7X9K2P";
+        Long petId = 100L;
+        UserPet rejectedUserPet = UserPet.builder()
+                .registrationStatus(RegistrationStatus.REJECTED)
+                .registrationUpdatedAt(LocalDateTime.now().minusMinutes(16))
+                .build();
+
+        given(redisTemplate.opsForValue()).willReturn(valueOperations);
+        given(valueOperations.get(anyString())).willReturn(String.valueOf(petId));
+        given(userPetRepository.findById(new UserPetId(userId, petId))).willReturn(Optional.of(rejectedUserPet));
+
+        // when
+        Long resultPetId = userPetService.registerByInvitation(userId, invitationCode);
+
+        // then
+        assertEquals(petId, resultPetId);
+        verify(userPetMapper).updateRegistrationStatus(userId, petId, RegistrationStatus.PENDING.name());
+    }
+
+    @Test
+    @DisplayName("초대 수락 실패: 이미 신청 대기(PENDING) 중인 경우 대기 중 메시지 에러를 반환한다.")
+    void registerByInvitation_Fail_PendingRequest() {
+        // given
+        UUID userId = UUID.randomUUID();
+        String invitationCode = "7X9K2P";
+        Long petId = 100L;
+        UserPet pendingUserPet = UserPet.builder()
+                .registrationStatus(RegistrationStatus.PENDING)
+                .build();
+
+        given(redisTemplate.opsForValue()).willReturn(valueOperations);
+        given(valueOperations.get(anyString())).willReturn(String.valueOf(petId));
+        given(userPetRepository.findById(new UserPetId(userId, petId))).willReturn(Optional.of(pendingUserPet));
+
+        // when
+        UserPetException exception = assertThrows(
+                UserPetException.class,
+                () -> userPetService.registerByInvitation(userId, invitationCode)
+        );
+
+        // then
+        assertEquals(UserPetErrorCode.FAMILY_REQUEST_PENDING, exception.getErrorCode());
     }
 
     /**
@@ -178,6 +255,30 @@ class UserPetServiceTest {
         verify(userPetRepository).findAllPendingRequestsByManager(managerId, pageable);
     }
 
+    @Test
+    @DisplayName("전체 차단 유저 조회 성공: 내가 관리하는 펫들에 대한 차단 목록만 페이징되어 반환된다.")
+    void getAllBlockedUsers_Success() {
+        // given
+        UUID managerId = UUID.randomUUID();
+        Pageable pageable = org.springframework.data.domain.PageRequest.of(0, 10);
+
+        org.springframework.data.domain.Page<UserPet> mockPage =
+                new org.springframework.data.domain.PageImpl<>(Collections.emptyList(), pageable, 0);
+
+        given(userPetRepository.findAllBlockedRequestsByManager(managerId, pageable))
+                .willReturn(mockPage);
+
+        // when
+        Map<String, Object> result = userPetService.getAllBlockedUsers(managerId, pageable);
+
+        // then
+        assertNotNull(result);
+        assertTrue(result.containsKey("blockedUserPage"));
+        assertEquals(mockPage, result.get("blockedUserPage"));
+
+        verify(userPetRepository).findAllBlockedRequestsByManager(managerId, pageable);
+    }
+
     /**
      * 가족 승인 요청 성공 시나리오를 테스트합니다.
      */
@@ -202,5 +303,27 @@ class UserPetServiceTest {
         // then
         assertEquals("가족 신청을 승인했습니다.", result);
         verify(userPetMapper).updateRegistrationStatus(targetUserId, petId, "APPROVED");
+    }
+
+    @Test
+    @DisplayName("가족 신청 차단 해제 성공: 요청자가 승인된 가족이고 대상이 차단 상태이면 관계를 삭제한다.")
+    void unblockFamilyMember_Success() {
+        // given
+        UUID requesterId = UUID.randomUUID();
+        UUID targetUserId = UUID.randomUUID();
+        Long petId = 100L;
+
+        UserPet requester = UserPet.builder().registrationStatus(RegistrationStatus.APPROVED).build();
+        UserPet blockedTarget = UserPet.builder().registrationStatus(RegistrationStatus.BLOCKED).build();
+
+        given(userPetRepository.findById(new UserPetId(requesterId, petId))).willReturn(Optional.of(requester));
+        given(userPetRepository.findById(new UserPetId(targetUserId, petId))).willReturn(Optional.of(blockedTarget));
+
+        // when
+        String result = userPetService.unblockFamilyMember(requesterId, petId, targetUserId);
+
+        // then
+        assertEquals("가족 신청 차단을 해제했습니다.", result);
+        verify(userPetRepository).delete(blockedTarget);
     }
 }
