@@ -26,6 +26,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -240,19 +241,20 @@ class UserPetServiceTest {
 
         org.springframework.data.domain.Page<UserPet> mockPage =
                 new org.springframework.data.domain.PageImpl<>(Collections.emptyList(), pageable, 0);
+        List<RegistrationStatus> statuses = List.of(RegistrationStatus.PENDING, RegistrationStatus.REJECTED);
 
-        given(userPetRepository.findAllPendingRequestsByManager(managerId, pageable))
+        given(userPetRepository.findAllPendingRequestsByManager(managerId, statuses, pageable))
                 .willReturn(mockPage);
 
         // when
-        Map<String, Object> result = userPetService.getAllPendingUsers(managerId, pageable);
+        Map<String, Object> result = userPetService.getAllPendingUsers(managerId, pageable, null);
 
         // then
         assertNotNull(result);
         assertTrue(result.containsKey("pendingUserPage"));
         assertEquals(mockPage, result.get("pendingUserPage"));
 
-        verify(userPetRepository).findAllPendingRequestsByManager(managerId, pageable);
+        verify(userPetRepository).findAllPendingRequestsByManager(managerId, statuses, pageable);
     }
 
     @Test

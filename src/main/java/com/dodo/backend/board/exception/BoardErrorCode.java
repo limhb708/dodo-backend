@@ -65,6 +65,20 @@ public enum BoardErrorCode implements BaseErrorCode {
     BOARD_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 ID의 게시글을 찾을 수 없습니다."),
 
     /**
+     * Redis에 해당 세션 키로 저장된 임시 게시글 데이터가 없을 때 사용합니다.
+     * <p>
+     * HTTP {@code 404 Not Found}를 반환합니다.
+     */
+    TEMP_SAVE_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 세션키를 찾을 수 없습니다."),
+
+    /**
+     * 게시글 임시 저장 요청 사용자가 게시글 작성자가 아니거나 삭제된 게시글을 임시 저장하려 할 때 사용합니다.
+     * <p>
+     * HTTP {@code 403 Forbidden}을 반환합니다.
+     */
+    TEMP_SAVE_PERMISSION_DENIED(HttpStatus.FORBIDDEN, "게시글을 수정할 권한이 없습니다."),
+
+    /**
      * 서버 내부에서 예상치 못한 오류가 발생했을 때 사용합니다.
      * <p>
      * HTTP {@code 500 Internal Server Error}를 반환합니다.
