@@ -2,6 +2,7 @@ package com.dodo.backend.notification.repository;
 
 import com.dodo.backend.notification.entity.NotificationSchedule;
 import com.dodo.backend.notification.entity.NotificationScheduleStatus;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -15,6 +16,8 @@ import java.util.Optional;
 
 @Repository
 public interface NotificationScheduleRepository extends JpaRepository<NotificationSchedule, Long> {
+
+    Page<NotificationSchedule> findAllByScheduleStatus(NotificationScheduleStatus scheduleStatus, Pageable pageable);
 
     @Query("""
             select ns.notificationScheduleId

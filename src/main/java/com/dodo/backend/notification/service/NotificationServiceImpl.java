@@ -1,5 +1,6 @@
 package com.dodo.backend.notification.service;
 
+import com.dodo.backend.comment.entity.Comment;
 import com.dodo.backend.notification.dto.request.NotificationRequest.NotificationReadUpdateRequest;
 import com.dodo.backend.notification.dto.response.NotificationResponse.NotificationItemResponse;
 import com.dodo.backend.notification.dto.response.NotificationResponse.NotificationListResponse;
@@ -11,6 +12,8 @@ import com.dodo.backend.notification.entity.NotificationType;
 import com.dodo.backend.notification.exception.NotificationErrorCode;
 import com.dodo.backend.notification.exception.NotificationException;
 import com.dodo.backend.notification.repository.NotificationRepository;
+import com.dodo.backend.reaction.entity.Reaction;
+import com.dodo.backend.user.entity.User;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -19,6 +22,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
@@ -42,8 +47,13 @@ public class NotificationServiceImpl implements NotificationService {
     private static final int MAX_PAGE_SIZE = 100;
     private static final String READ_SUCCESS_MESSAGE = "알림이 성공적으로 읽음 처리되었습니다.";
     private static final String READ_ALL_SUCCESS_MESSAGE = "모든 알림이 성공적으로 읽음 처리되었습니다.";
+    private static final String COMMENT_NOTIFICATION_TITLE = "게시글에 새 댓글이 달렸습니다.";
+    private static final int COMMENT_NOTIFICATION_BODY_MAX_LENGTH = 50;
+    private static final String BOARD_REACTION_TARGET_NAME = "내 게시글";
+    private static final String HISTORY_REACTION_TARGET_NAME = "내 활동 기록";
 
     private final NotificationRepository notificationRepository;
+    private final FcmNotificationSender fcmNotificationSender;
 
     /**
      * 알림 목록을 조회합니다.
@@ -60,7 +70,7 @@ public class NotificationServiceImpl implements NotificationService {
     public NotificationListResponse getNotifications(UUID userId, int page, int size, Boolean isRead, String type) {
         validatePageRequest(userId, page, size);
         Pageable pageable = PageRequest.of(
-                page,
+                page - 1,
                 size,
                 Sort.by(Sort.Direction.DESC, "notificationCreatedAt").and(Sort.by(Sort.Direction.DESC, "notificationId"))
         );
@@ -147,6 +157,68 @@ public class NotificationServiceImpl implements NotificationService {
         notificationRepository.deleteAllByUserUsersId(userId);
     }
 
+    /**
+     * 댓글 작성 시 게시글 작성자에게 COMMENT 알림을 생성하고 커밋 이후 FCM 푸시를 발송합니다.
+     *
+     * @param comment 생성된 댓글
+     */
+    @Transactional
+    @Override
+    public void notifyCommentCreated(Comment comment) {
+        if (comment == null || comment.getBoard() == null || comment.getUser() == null || comment.getBoard().getUser() == null) {
+            throw new NotificationException(INVALID_REQUEST);
+        }
+
+        UUID commenterId = comment.getUser().getUsersId();
+        UUID boardWriterId = comment.getBoard().getUser().getUsersId();
+        if (commenterId == null || boardWriterId == null || commenterId.equals(boardWriterId)) {
+            return;
+        }
+        if (!Boolean.TRUE.equals(comment.getBoard().getUser().getNotificationEnabled())) {
+            return;
+        }
+
+        createNotificationAndSendAfterCommit(
+                comment.getBoard().getUser(),
+                COMMENT_NOTIFICATION_TITLE,
+                buildCommentNotificationBody(comment.getCommentContent()),
+                NotificationType.COMMENT,
+                comment.getBoard().getBoardId()
+        );
+    }
+
+    /**
+     * 반응 작성 시 대상 작성자에게 REACTION 알림을 생성하고 커밋 이후 FCM 푸시를 발송합니다.
+     *
+     * @param reaction 생성된 반응
+     */
+    @Transactional
+    @Override
+    public void notifyReactionCreated(Reaction reaction) {
+        if (reaction == null || reaction.getUser() == null || reaction.getReactionType() == null) {
+            throw new NotificationException(INVALID_REQUEST);
+        }
+
+        ReactionNotificationTarget target = resolveReactionNotificationTarget(reaction);
+        UUID reactorId = reaction.getUser().getUsersId();
+        UUID recipientId = target.recipient().getUsersId();
+        if (reactorId == null || recipientId == null || reactorId.equals(recipientId)) {
+            return;
+        }
+        if (!Boolean.TRUE.equals(target.recipient().getNotificationEnabled())) {
+            return;
+        }
+
+        String reactionName = resolveReactionName(reaction);
+        createNotificationAndSendAfterCommit(
+                target.recipient(),
+                target.targetName() + "에 " + reactionName + "가 눌렸습니다.",
+                "누군가 " + reactionName + "를 눌렀습니다.",
+                NotificationType.REACTION,
+                target.relatedId()
+        );
+    }
+
     private Specification<Notification> buildNotificationSpecification(UUID userId, Boolean isRead, List<NotificationType> types) {
         return (root, query, criteriaBuilder) -> {
             List<Predicate> predicates = new ArrayList<>();
@@ -161,6 +233,80 @@ public class NotificationServiceImpl implements NotificationService {
 
             return criteriaBuilder.and(predicates.toArray(Predicate[]::new));
         };
+    }
+
+    private String buildCommentNotificationBody(String commentContent) {
+        String content = commentContent == null ? "" : commentContent.strip();
+        if (content.length() > COMMENT_NOTIFICATION_BODY_MAX_LENGTH) {
+            content = content.substring(0, COMMENT_NOTIFICATION_BODY_MAX_LENGTH) + "...";
+        }
+        return "새 댓글: '" + content + "'";
+    }
+
+    private ReactionNotificationTarget resolveReactionNotificationTarget(Reaction reaction) {
+        if (reaction.getBoard() != null) {
+            if (reaction.getBoard().getUser() == null || reaction.getBoard().getBoardId() == null) {
+                throw new NotificationException(INVALID_REQUEST);
+            }
+            return new ReactionNotificationTarget(
+                    reaction.getBoard().getUser(),
+                    reaction.getBoard().getBoardId(),
+                    BOARD_REACTION_TARGET_NAME
+            );
+        }
+
+        if (reaction.getHistory() != null) {
+            if (reaction.getHistory().getUser() == null || reaction.getHistory().getHistoryId() == null) {
+                throw new NotificationException(INVALID_REQUEST);
+            }
+            return new ReactionNotificationTarget(
+                    reaction.getHistory().getUser(),
+                    reaction.getHistory().getHistoryId(),
+                    HISTORY_REACTION_TARGET_NAME
+            );
+        }
+
+        throw new NotificationException(INVALID_REQUEST);
+    }
+
+    private String resolveReactionName(Reaction reaction) {
+        return switch (reaction.getReactionType()) {
+            case LIKE -> "좋아요";
+            case DISLIKE -> "싫어요";
+        };
+    }
+
+    private void createNotificationAndSendAfterCommit(User recipient, String title, String body, NotificationType type, Long relatedId) {
+        Notification notification = Notification.builder()
+                .user(recipient)
+                .notificationTitle(title)
+                .notificationBody(body)
+                .notificationType(type)
+                .relatedId(relatedId)
+                .isRead(false)
+                .build();
+        notificationRepository.save(notification);
+
+        sendPushAfterCommit(List.of(recipient), title, body, type, relatedId);
+    }
+
+    private void sendPushAfterCommit(List<User> recipients, String title, String body, NotificationType type, Long relatedId) {
+        Runnable pushTask = () -> fcmNotificationSender.sendToUsers(recipients, title, body, type, relatedId);
+
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            pushTask.run();
+            return;
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                pushTask.run();
+            }
+        });
+    }
+
+    private record ReactionNotificationTarget(User recipient, Long relatedId, String targetName) {
     }
 
     private Notification findOwnedNotification(UUID userId, Long notificationId, NotificationErrorCode forbiddenErrorCode) {
@@ -196,7 +342,7 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     private void validatePageRequest(UUID userId, int page, int size) {
-        if (userId == null || page < 0 || size <= 0 || size > MAX_PAGE_SIZE) {
+        if (userId == null || page <= 0 || size <= 0 || size > MAX_PAGE_SIZE) {
             throw new NotificationException(INVALID_REQUEST);
         }
     }

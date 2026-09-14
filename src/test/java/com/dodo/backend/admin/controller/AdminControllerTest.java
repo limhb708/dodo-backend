@@ -11,7 +11,13 @@ import com.dodo.backend.admin.dto.response.AdminResponse.UserListResponse;
 import com.dodo.backend.admin.service.AdminService;
 import com.dodo.backend.notification.dto.request.NotificationRequest.NotificationScheduleCreateRequest;
 import com.dodo.backend.notification.dto.response.NotificationResponse.NotificationScheduleCreateResponse;
+import com.dodo.backend.notification.dto.response.NotificationResponse.NotificationScheduleItemResponse;
+import com.dodo.backend.notification.dto.response.NotificationResponse.NotificationScheduleListResponse;
+import com.dodo.backend.notification.dto.response.NotificationResponse.NotificationSimpleResponse;
 import com.dodo.backend.notification.entity.NotificationScheduleStatus;
+import com.dodo.backend.notification.entity.NotificationScheduleTargetType;
+import com.dodo.backend.notification.entity.NotificationScheduleRepeatType;
+import com.dodo.backend.notification.entity.NotificationType;
 import com.dodo.backend.notification.service.NotificationScheduleService;
 import com.dodo.backend.report.entity.ReportStatus;
 import com.dodo.backend.user.entity.UserStatus;
@@ -198,6 +204,56 @@ class AdminControllerTest {
                 .andExpect(jsonPath("$.scheduleStatus").value("PENDING"));
 
         verify(notificationScheduleService).createSchedule(eq(adminId), any(NotificationScheduleCreateRequest.class));
+    }
+
+    @Test
+    @DisplayName("알림 스케줄 목록 조회 API 성공")
+    void getNotificationSchedules_Success() throws Exception {
+        LocalDateTime scheduledAt = LocalDateTime.of(2099, 1, 1, 14, 30);
+        NotificationScheduleListResponse response = NotificationScheduleListResponse.builder()
+                .pageInfo(com.dodo.backend.notification.dto.response.NotificationResponse.PageInfoResponse.builder()
+                        .page(1)
+                        .size(20)
+                        .totalElements(1)
+                        .totalPages(1)
+                        .build())
+                .data(List.of(NotificationScheduleItemResponse.builder()
+                        .scheduleId(1L)
+                        .notificationTitle("공지 알림")
+                        .notificationBody("새로운 공지가 등록되었습니다.")
+                        .notificationType(NotificationType.SYSTEM)
+                        .targetType(NotificationScheduleTargetType.ALL)
+                        .targetUserIds(List.of())
+                        .repeatType(NotificationScheduleRepeatType.NONE)
+                        .scheduleStatus(NotificationScheduleStatus.PENDING)
+                        .scheduledAt(scheduledAt)
+                        .build()))
+                .build();
+
+        given(notificationScheduleService.getSchedules(adminId, 1, 20, NotificationScheduleStatus.PENDING))
+                .willReturn(response);
+
+        mockMvc.perform(get("/admin/notification-schedules")
+                        .param("status", "PENDING"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pageInfo.page").value(1))
+                .andExpect(jsonPath("$.data[0].scheduleId").value(1))
+                .andExpect(jsonPath("$.data[0].scheduleStatus").value("PENDING"));
+
+        verify(notificationScheduleService).getSchedules(adminId, 1, 20, NotificationScheduleStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("알림 스케줄 취소 API 성공")
+    void cancelNotificationSchedule_Success() throws Exception {
+        given(notificationScheduleService.cancelSchedule(adminId, 1L))
+                .willReturn(NotificationSimpleResponse.toDto("알림 스케줄이 성공적으로 취소되었습니다."));
+
+        mockMvc.perform(delete("/admin/notification-schedules/{scheduleId}", 1L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("알림 스케줄이 성공적으로 취소되었습니다."));
+
+        verify(notificationScheduleService).cancelSchedule(adminId, 1L);
     }
 
     /**

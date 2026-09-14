@@ -4,6 +4,7 @@ import com.dodo.backend.activityhistory.entity.ActivityHistory;
 import com.dodo.backend.activityhistory.service.ActivityHistoryService;
 import com.dodo.backend.board.entity.Board;
 import com.dodo.backend.board.service.BoardService;
+import com.dodo.backend.notification.service.NotificationService;
 import com.dodo.backend.reaction.dto.request.ReactionRequest.BoardReactionCreateRequest;
 import com.dodo.backend.reaction.dto.request.ReactionRequest.BoardReactionUpdateRequest;
 import com.dodo.backend.reaction.dto.request.ReactionRequest.HistoryReactionCreateRequest;
@@ -43,6 +44,7 @@ public class ReactionServiceImpl implements ReactionService {
     private final ActivityHistoryService activityHistoryService;
     private final BoardService boardService;
     private final UserService userService;
+    private final NotificationService notificationService;
 
     /**
      * {@inheritDoc}
@@ -68,7 +70,8 @@ public class ReactionServiceImpl implements ReactionService {
         }
 
         Reaction reaction = request.toEntity(user, history);
-        reactionRepository.save(reaction);
+        Reaction savedReaction = reactionRepository.save(reaction);
+        notificationService.notifyReactionCreated(savedReaction);
 
         log.info("활동 반응 추가 완료 - User: {}, HistoryId: {}, ReactionType: {}",
                 userId, request.getHistoryId(), reaction.getReactionType());
@@ -158,7 +161,8 @@ public class ReactionServiceImpl implements ReactionService {
         }
 
         Reaction reaction = request.toEntity(user, board);
-        reactionRepository.save(reaction);
+        Reaction savedReaction = reactionRepository.save(reaction);
+        notificationService.notifyReactionCreated(savedReaction);
 
         log.info("게시물 반응 추가 완료 - User: {}, BoardId: {}, ReactionType: {}",
                 userId, request.getBoardId(), reaction.getReactionType());

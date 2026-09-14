@@ -65,14 +65,35 @@ class NotificationControllerTest {
     @DisplayName("알림 목록 조회 API 성공")
     void getNotifications_Success() throws Exception {
         NotificationListResponse response = NotificationListResponse.builder()
-                .pageInfo(PageInfoResponse.builder().page(0).size(20).totalElements(0).totalPages(0).build())
+                .pageInfo(PageInfoResponse.builder().page(1).size(20).totalElements(0).totalPages(0).build())
                 .data(List.of())
                 .build();
-        given(notificationService.getNotifications(eq(userId), eq(0), eq(20), eq(null), eq(null))).willReturn(response);
+        given(notificationService.getNotifications(eq(userId), eq(1), eq(20), eq(null), eq(null))).willReturn(response);
 
         mockMvc.perform(get("/notifications"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.pageInfo.page").value(0));
+                .andExpect(jsonPath("$.pageInfo.page").value(1));
+    }
+
+    @Test
+    @DisplayName("notification list API passes filters")
+    void getNotifications_WithFilters() throws Exception {
+        NotificationListResponse response = NotificationListResponse.builder()
+                .pageInfo(PageInfoResponse.builder().page(2).size(10).totalElements(0).totalPages(0).build())
+                .data(List.of())
+                .build();
+        given(notificationService.getNotifications(eq(userId), eq(2), eq(10), eq(false), eq("COMMENT,REACTION")))
+                .willReturn(response);
+
+        mockMvc.perform(get("/notifications")
+                        .param("page", "2")
+                        .param("size", "10")
+                        .param("isRead", "false")
+                        .param("type", "COMMENT,REACTION"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pageInfo.page").value(2));
+
+        verify(notificationService).getNotifications(userId, 2, 10, false, "COMMENT,REACTION");
     }
 
     /**
@@ -104,18 +125,42 @@ class NotificationControllerTest {
                 .andExpect(jsonPath("$.unreadCount").value(3));
     }
 
+    @Test
+    @DisplayName("read all notifications API success")
+    void readAll_Success() throws Exception {
+        given(notificationService.readAll(userId))
+                .willReturn(NotificationSimpleResponse.toDto("all read"));
+
+        mockMvc.perform(patch("/notifications/read-all"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("all read"));
+
+        verify(notificationService).readAll(userId);
+    }
+
     /**
-     * 알림 삭제 API가 200과 성공 메시지를 반환하는지 검증합니다.
+     * 알림 삭제 API가 204를 반환하는지 검증합니다.
      */
     @Test
     @DisplayName("알림 삭제 API 성공")
     void deleteNotification_Success() throws Exception {
         mockMvc.perform(delete("/notifications/{notificationId}", 1L)
                 )
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("알림이 성공적으로 삭제되었습니다."));
+                .andExpect(status().isNoContent());
 
         verify(notificationService).deleteNotification(userId, 1L);
+    }
+
+    /**
+     * 모든 알림 삭제 API가 204를 반환하는지 검증합니다.
+     */
+    @Test
+    @DisplayName("모든 알림 삭제 API 성공")
+    void deleteAll_Success() throws Exception {
+        mockMvc.perform(delete("/notifications/all"))
+                .andExpect(status().isNoContent());
+
+        verify(notificationService).deleteAll(userId);
     }
 
     private HandlerMethodArgumentResolver authenticationPrincipalResolver() {

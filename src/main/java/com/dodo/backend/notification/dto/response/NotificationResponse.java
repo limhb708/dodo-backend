@@ -2,7 +2,9 @@ package com.dodo.backend.notification.dto.response;
 
 import com.dodo.backend.notification.entity.Notification;
 import com.dodo.backend.notification.entity.NotificationSchedule;
+import com.dodo.backend.notification.entity.NotificationScheduleRepeatType;
 import com.dodo.backend.notification.entity.NotificationScheduleStatus;
+import com.dodo.backend.notification.entity.NotificationScheduleTargetType;
 import com.dodo.backend.notification.entity.NotificationType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
@@ -11,7 +13,9 @@ import lombok.Getter;
 import org.springframework.data.domain.Page;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * 알림 API에서 사용하는 응답 DTO를 모아 둔 클래스입니다.
@@ -80,7 +84,7 @@ public class NotificationResponse {
         private String notificationBody;
         @Schema(description = "알림 유형", example = "SYSTEM")
         private NotificationType notificationType;
-        @Schema(description = "알림과 연결된 리소스 ID. 연결 대상이 없으면 null입니다.", example = "31", nullable = true)
+        @Schema(description = "알림과 연결된 리소스 ID. COMMENT/게시글 REACTION은 boardId, 활동기록 REACTION은 historyId입니다.", example = "31", nullable = true)
         private Long relatedId;
         @Schema(description = "알림 읽음 여부", example = "false")
         private Boolean isRead;
@@ -154,5 +158,72 @@ public class NotificationResponse {
                     .scheduledAt(schedule.getScheduledAt())
                     .build();
         }
+    }
+
+    @Getter
+    @Builder
+    @AllArgsConstructor
+    @Schema(description = "알림 스케줄 목록 아이템")
+    public static class NotificationScheduleItemResponse {
+        @Schema(description = "알림 스케줄 ID", example = "10")
+        private Long scheduleId;
+        @Schema(description = "알림 제목", example = "공지 알림")
+        private String notificationTitle;
+        @Schema(description = "알림 본문", example = "새로운 공지가 등록되었습니다.")
+        private String notificationBody;
+        @Schema(description = "알림 유형", example = "SYSTEM")
+        private NotificationType notificationType;
+        @Schema(description = "발송 대상 유형", example = "ALL")
+        private NotificationScheduleTargetType targetType;
+        @Schema(description = "targetType이 USERS일 때 발송 대상 사용자 ID 목록")
+        private List<UUID> targetUserIds;
+        @Schema(description = "반복 유형", example = "NONE")
+        private NotificationScheduleRepeatType repeatType;
+        @Schema(description = "알림 스케줄 처리 상태", example = "PENDING")
+        private NotificationScheduleStatus scheduleStatus;
+        @Schema(description = "알림 발송 예정 일시", example = "2026-09-20T09:00:00")
+        private LocalDateTime scheduledAt;
+        @Schema(description = "알림 스케줄 생성 일시", example = "2026-09-14T15:30:00")
+        private LocalDateTime createdAt;
+        @Schema(description = "알림 스케줄 마지막 실행 일시", example = "2026-09-20T09:00:00", nullable = true)
+        private LocalDateTime executedAt;
+
+        public static NotificationScheduleItemResponse toDto(NotificationSchedule schedule) {
+            return NotificationScheduleItemResponse.builder()
+                    .scheduleId(schedule.getNotificationScheduleId())
+                    .notificationTitle(schedule.getNotificationTitle())
+                    .notificationBody(schedule.getNotificationBody())
+                    .notificationType(schedule.getNotificationType())
+                    .targetType(schedule.getTargetType())
+                    .targetUserIds(parseTargetUserIds(schedule.getTargetUserIds()))
+                    .repeatType(schedule.getRepeatType())
+                    .scheduleStatus(schedule.getScheduleStatus())
+                    .scheduledAt(schedule.getScheduledAt())
+                    .createdAt(schedule.getCreatedAt())
+                    .executedAt(schedule.getExecutedAt())
+                    .build();
+        }
+
+        private static List<UUID> parseTargetUserIds(String targetUserIds) {
+            if (targetUserIds == null || targetUserIds.isBlank()) {
+                return List.of();
+            }
+            return Arrays.stream(targetUserIds.split(","))
+                    .map(String::trim)
+                    .filter(value -> !value.isBlank())
+                    .map(UUID::fromString)
+                    .toList();
+        }
+    }
+
+    @Getter
+    @Builder
+    @AllArgsConstructor
+    @Schema(description = "알림 스케줄 목록 조회 응답")
+    public static class NotificationScheduleListResponse {
+        @Schema(description = "알림 스케줄 목록의 페이지 정보")
+        private PageInfoResponse pageInfo;
+        @Schema(description = "조회된 알림 스케줄 목록")
+        private List<NotificationScheduleItemResponse> data;
     }
 }

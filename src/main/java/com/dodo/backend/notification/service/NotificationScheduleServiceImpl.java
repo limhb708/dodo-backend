@@ -2,6 +2,10 @@ package com.dodo.backend.notification.service;
 
 import com.dodo.backend.notification.dto.request.NotificationRequest.NotificationScheduleCreateRequest;
 import com.dodo.backend.notification.dto.response.NotificationResponse.NotificationScheduleCreateResponse;
+import com.dodo.backend.notification.dto.response.NotificationResponse.NotificationScheduleItemResponse;
+import com.dodo.backend.notification.dto.response.NotificationResponse.NotificationScheduleListResponse;
+import com.dodo.backend.notification.dto.response.NotificationResponse.NotificationSimpleResponse;
+import com.dodo.backend.notification.dto.response.NotificationResponse.PageInfoResponse;
 import com.dodo.backend.notification.entity.NotificationSchedule;
 import com.dodo.backend.notification.entity.NotificationScheduleRepeatType;
 import com.dodo.backend.notification.entity.NotificationScheduleStatus;
@@ -13,6 +17,10 @@ import com.dodo.backend.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,11 +31,15 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static com.dodo.backend.notification.exception.NotificationErrorCode.INVALID_REQUEST;
+import static com.dodo.backend.notification.exception.NotificationErrorCode.NOTIFICATION_SCHEDULE_NOT_FOUND;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class NotificationScheduleServiceImpl implements NotificationScheduleService {
+
+    private static final int MAX_SCHEDULE_PAGE_SIZE = 100;
+    private static final String SCHEDULE_CANCEL_SUCCESS_MESSAGE = "알림 스케줄이 성공적으로 취소되었습니다.";
 
     private final NotificationScheduleRepository notificationScheduleRepository;
     private final UserRepository userRepository;
@@ -58,6 +70,44 @@ public class NotificationScheduleServiceImpl implements NotificationScheduleServ
 
         NotificationSchedule savedSchedule = notificationScheduleRepository.save(schedule);
         return NotificationScheduleCreateResponse.toDto(savedSchedule);
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public NotificationScheduleListResponse getSchedules(UUID adminId, int page, int size, NotificationScheduleStatus status) {
+        validateSchedulePageRequest(adminId, page, size);
+
+        Pageable pageable = PageRequest.of(
+                page - 1,
+                size,
+                Sort.by(Sort.Direction.DESC, "scheduledAt")
+                        .and(Sort.by(Sort.Direction.DESC, "notificationScheduleId"))
+        );
+        Page<NotificationSchedule> schedules = status == null
+                ? notificationScheduleRepository.findAll(pageable)
+                : notificationScheduleRepository.findAllByScheduleStatus(status, pageable);
+
+        return NotificationScheduleListResponse.builder()
+                .pageInfo(PageInfoResponse.toDto(schedules, page))
+                .data(schedules.stream()
+                        .map(NotificationScheduleItemResponse::toDto)
+                        .toList())
+                .build();
+    }
+
+    @Transactional
+    @Override
+    public NotificationSimpleResponse cancelSchedule(UUID adminId, Long scheduleId) {
+        validateScheduleIdRequest(adminId, scheduleId);
+        NotificationSchedule schedule = notificationScheduleRepository.findById(scheduleId)
+                .orElseThrow(() -> new NotificationException(NOTIFICATION_SCHEDULE_NOT_FOUND));
+        if (schedule.getScheduleStatus() == NotificationScheduleStatus.COMPLETED
+                || schedule.getScheduleStatus() == NotificationScheduleStatus.CANCELED) {
+            throw new NotificationException(INVALID_REQUEST);
+        }
+
+        schedule.cancel();
+        return NotificationSimpleResponse.toDto(SCHEDULE_CANCEL_SUCCESS_MESSAGE);
     }
 
     @Scheduled(fixedDelayString = "${notification.scheduler.fixed-delay:60000}")
@@ -123,6 +173,18 @@ public class NotificationScheduleServiceImpl implements NotificationScheduleServ
                 .map(UUID::toString)
                 .reduce((left, right) -> left + "," + right)
                 .orElseThrow(() -> new NotificationException(INVALID_REQUEST));
+    }
+
+    private void validateSchedulePageRequest(UUID adminId, int page, int size) {
+        if (adminId == null || page <= 0 || size <= 0 || size > MAX_SCHEDULE_PAGE_SIZE) {
+            throw new NotificationException(INVALID_REQUEST);
+        }
+    }
+
+    private void validateScheduleIdRequest(UUID adminId, Long scheduleId) {
+        if (adminId == null || scheduleId == null || scheduleId <= 0) {
+            throw new NotificationException(INVALID_REQUEST);
+        }
     }
 
 }

@@ -100,6 +100,11 @@ public class NotificationSchedule {
         clearProcessing();
     }
 
+    public void cancel() {
+        this.scheduleStatus = NotificationScheduleStatus.CANCELED;
+        clearProcessing();
+    }
+
     private void clearProcessing() {
         this.processingToken = null;
         this.processingStartedAt = null;

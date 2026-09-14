@@ -71,7 +71,7 @@ public class NotificationController {
     })
     @GetMapping
     public ResponseEntity<NotificationListResponse> getNotifications(
-            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) Boolean isRead,
             @RequestParam(required = false) String type,
@@ -131,12 +131,12 @@ public class NotificationController {
      *
      * @param notificationId 삭제할 알림 ID
      * @param userDetails 인증 사용자 정보
-     * @return 알림 삭제 성공 메시지
+     * @return 응답 본문이 없는 204 응답
      */
     @Operation(summary = "알림 삭제", description = "특정 알림을 삭제합니다.")
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "알림이 성공적으로 삭제되었습니다.",
-                    content = @Content(schema = @Schema(implementation = NotificationSimpleResponse.class))),
+            @ApiResponse(responseCode = "204", description = "알림이 성공적으로 삭제되었습니다.",
+                    content = @Content),
             @ApiResponse(responseCode = "400", description = "잘못된 요청입니다.",
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ErrorResponse.class),
@@ -159,14 +159,14 @@ public class NotificationController {
                             examples = @ExampleObject(name = "서버 내부 오류가 발생했습니다.", value = "{\"status\": 500, \"message\": \"서버 내부 오류가 발생했습니다.\"}")))
     })
     @DeleteMapping("/{notificationId}")
-    public ResponseEntity<NotificationSimpleResponse> deleteNotification(
+    public ResponseEntity<Void> deleteNotification(
             @PathVariable Long notificationId,
             @AuthenticationPrincipal UserDetails userDetails
     ) {
         UUID userId = UUID.fromString(userDetails.getUsername());
         log.info("알림 삭제 요청 - UserId: {}, NotificationId: {}", userId, notificationId);
         notificationService.deleteNotification(userId, notificationId);
-        return ResponseEntity.ok(NotificationSimpleResponse.toDto("알림이 성공적으로 삭제되었습니다."));
+        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -237,12 +237,12 @@ public class NotificationController {
      * 모든 알림을 삭제합니다.
      *
      * @param userDetails 인증 사용자 정보
-     * @return 전체 알림 삭제 성공 메시지
+     * @return 응답 본문이 없는 204 응답
      */
     @Operation(summary = "모든 알림 삭제", description = "로그인 사용자의 모든 알림을 삭제합니다.")
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "모든 알림이 성공적으로 삭제되었습니다.",
-                    content = @Content(schema = @Schema(implementation = NotificationSimpleResponse.class))),
+            @ApiResponse(responseCode = "204", description = "모든 알림이 성공적으로 삭제되었습니다.",
+                    content = @Content),
             @ApiResponse(responseCode = "400", description = "잘못된 요청입니다.",
                     content = @Content(mediaType = "application/json",
                             schema = @Schema(implementation = ErrorResponse.class),
@@ -257,12 +257,12 @@ public class NotificationController {
                             examples = @ExampleObject(name = "서버 내부 오류가 발생했습니다.", value = "{\"status\": 500, \"message\": \"서버 내부 오류가 발생했습니다.\"}")))
     })
     @DeleteMapping("/all")
-    public ResponseEntity<NotificationSimpleResponse> deleteAll(
+    public ResponseEntity<Void> deleteAll(
             @AuthenticationPrincipal UserDetails userDetails
     ) {
         UUID userId = UUID.fromString(userDetails.getUsername());
         log.info("모든 알림 삭제 요청 - UserId: {}", userId);
         notificationService.deleteAll(userId);
-        return ResponseEntity.ok(NotificationSimpleResponse.toDto("모든 알림이 성공적으로 삭제되었습니다."));
+        return ResponseEntity.noContent().build();
     }
 }

@@ -15,6 +15,7 @@ import com.dodo.backend.comment.exception.CommentErrorCode;
 import com.dodo.backend.comment.exception.CommentException;
 import com.dodo.backend.comment.mapper.CommentMapper;
 import com.dodo.backend.comment.repository.CommentRepository;
+import com.dodo.backend.notification.service.NotificationService;
 import com.dodo.backend.user.entity.User;
 import com.dodo.backend.user.service.UserService;
 import lombok.extern.slf4j.Slf4j;
@@ -62,6 +63,9 @@ class CommentServiceTest {
 
     @Mock
     private UserService userService;
+
+    @Mock
+    private NotificationService notificationService;
 
     /**
      * 댓글 작성 요청 시 게시글과 사용자를 조회하고 댓글을 저장하는지 검증합니다.
@@ -118,6 +122,7 @@ class CommentServiceTest {
         assertEquals(user, captor.getValue().getUser());
         assertNull(captor.getValue().getParentComment());
         assertEquals("좋은 정보 감사합니다!", captor.getValue().getCommentContent());
+        verify(notificationService).notifyCommentCreated(savedComment);
 
         log.info("테스트 종료: 댓글 작성 성공");
     }
@@ -180,6 +185,7 @@ class CommentServiceTest {
         ArgumentCaptor<Comment> captor = ArgumentCaptor.forClass(Comment.class);
         verify(commentRepository).save(captor.capture());
         assertEquals(parentComment, captor.getValue().getParentComment());
+        verify(notificationService).notifyCommentCreated(savedComment);
 
         log.info("테스트 종료: 대댓글 작성 성공");
     }

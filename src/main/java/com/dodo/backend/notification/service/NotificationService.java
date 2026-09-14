@@ -4,6 +4,8 @@ import com.dodo.backend.notification.dto.request.NotificationRequest.Notificatio
 import com.dodo.backend.notification.dto.response.NotificationResponse.NotificationListResponse;
 import com.dodo.backend.notification.dto.response.NotificationResponse.NotificationSimpleResponse;
 import com.dodo.backend.notification.dto.response.NotificationResponse.UnreadNotificationCountResponse;
+import com.dodo.backend.comment.entity.Comment;
+import com.dodo.backend.reaction.entity.Reaction;
 
 import java.util.UUID;
 
@@ -23,4 +25,8 @@ public interface NotificationService {
     NotificationSimpleResponse readAll(UUID userId);
 
     void deleteAll(UUID userId);
+
+    void notifyCommentCreated(Comment comment);
+
+    void notifyReactionCreated(Reaction reaction);
 }

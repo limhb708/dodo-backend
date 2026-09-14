@@ -6,6 +6,7 @@ import com.dodo.backend.activityhistory.exception.ActivityHistoryException;
 import com.dodo.backend.activityhistory.service.ActivityHistoryService;
 import com.dodo.backend.board.entity.Board;
 import com.dodo.backend.board.service.BoardService;
+import com.dodo.backend.notification.service.NotificationService;
 import com.dodo.backend.pet.entity.Pet;
 import com.dodo.backend.reaction.dto.request.ReactionRequest.BoardReactionCreateRequest;
 import com.dodo.backend.reaction.dto.request.ReactionRequest.BoardReactionUpdateRequest;
@@ -59,6 +60,9 @@ class ReactionServiceTest {
     @Mock
     private UserService userService;
 
+    @Mock
+    private NotificationService notificationService;
+
     /**
      * 활동 반응 추가가 정상적으로 저장되고 성공 메시지를 반환하는지 검증합니다.
      */
@@ -96,6 +100,7 @@ class ReactionServiceTest {
         assertNotNull(response);
         assertEquals("반응이 성공적으로 추가되었습니다.", response.getMessage());
         verify(reactionRepository, times(1)).save(any(Reaction.class));
+        verify(notificationService).notifyReactionCreated(any(Reaction.class));
     }
 
     /**
@@ -444,6 +449,7 @@ class ReactionServiceTest {
         assertNotNull(response);
         assertEquals("반응이 성공적으로 추가되었습니다.", response.getMessage());
         verify(reactionRepository, times(1)).save(any(Reaction.class));
+        verify(notificationService).notifyReactionCreated(any(Reaction.class));
     }
 
     /**

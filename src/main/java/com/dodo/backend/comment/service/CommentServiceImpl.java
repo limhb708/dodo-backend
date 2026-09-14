@@ -16,6 +16,7 @@ import com.dodo.backend.comment.exception.CommentErrorCode;
 import com.dodo.backend.comment.exception.CommentException;
 import com.dodo.backend.comment.mapper.CommentMapper;
 import com.dodo.backend.comment.repository.CommentRepository;
+import com.dodo.backend.notification.service.NotificationService;
 import com.dodo.backend.user.entity.User;
 import com.dodo.backend.user.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +46,7 @@ public class CommentServiceImpl implements CommentService {
     private final CommentMapper commentMapper;
     private final BoardService boardService;
     private final UserService userService;
+    private final NotificationService notificationService;
 
     /**
      * 댓글을 작성합니다.
@@ -72,6 +74,7 @@ public class CommentServiceImpl implements CommentService {
 
         Comment comment = request.toEntity(board, user, parentComment);
         Comment savedComment = commentRepository.save(comment);
+        notificationService.notifyCommentCreated(savedComment);
 
         return CommentCreateResponse.toDto(savedComment, "댓글이 성공적으로 작성되었습니다.");
     }

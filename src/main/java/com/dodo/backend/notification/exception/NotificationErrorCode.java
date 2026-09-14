@@ -23,6 +23,11 @@ public enum NotificationErrorCode implements BaseErrorCode {
     NOTIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 ID의 알림을 찾을 수 없습니다."),
 
     /**
+     * 알림 스케줄을 찾을 수 없는 경우 사용합니다.
+     */
+    NOTIFICATION_SCHEDULE_NOT_FOUND(HttpStatus.NOT_FOUND, "해당 ID의 알림 스케줄을 찾을 수 없습니다."),
+
+    /**
      * 알림 수정 권한이 없는 경우 사용합니다.
      */
     NOTIFICATION_UPDATE_FORBIDDEN(HttpStatus.FORBIDDEN, "알림을 수정할 권한이 없습니다."),
